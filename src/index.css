@@ -1,0 +1,112 @@
+/* S&B Nexus — global foundation
+   Warm, considered palette: deep teal ink, ivory cream, terracotta, sage, butter. */
+
+:root {
+  /* Brand palette */
+  --ink: #193b3a;
+  --cream: #f7f1e6;
+  --line: #d9d0c2;
+  --orange: #d8664a;
+  --green: #6f8975;
+  --butter: #e5bd63;
+  --clay: #c9866d;
+
+  /* Text scale */
+  --text: #55706c;
+  --text-h: var(--ink);
+  --text-muted: #8a8379;
+
+  /* Surfaces */
+  --bg: var(--cream);
+  --surface: #fffaf2;
+  --code-bg: #e9dfce;
+
+  /* Effects */
+  --shadow-sm: 0 4px 12px rgba(25, 59, 58, 0.06);
+  --shadow-md: 0 10px 30px rgba(25, 59, 58, 0.10);
+  --shadow-lg: 0 18px 50px rgba(25, 59, 58, 0.14);
+
+  /* Type stacks */
+  --sans: 'DM Sans', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --serif: 'Playfair Display', Georgia, serif;
+  --mono: ui-monospace, Consolas, monospace;
+
+  font: 16px/1.5 var(--sans);
+  letter-spacing: 0.18px;
+  color-scheme: light;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--cream);
+  color: var(--text);
+}
+
+#root {
+  width: 100%;
+  min-height: 100svh;
+  text-align: left;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--sans);
+  font-weight: 500;
+  color: var(--text-h);
+  margin: 0;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+::selection {
+  background: var(--orange);
+  color: #fff;
+}
+
+/* Accessible focus ring for keyboard users */
+:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Reduced motion: disable non-essential animations */
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

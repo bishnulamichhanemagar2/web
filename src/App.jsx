@@ -164,6 +164,48 @@ function OrderStepper({ status }) {
   )
 }
 
+/* ---------- Payment gateway helpers (front-end simulation) ---------- */
+function detectCardBrand(digits) {
+  if (/^4/.test(digits)) return 'Visa'
+  if (/^(5[1-5]|2[2-7])/.test(digits)) return 'Mastercard'
+  if (/^3[47]/.test(digits)) return 'Amex'
+  if (/^6(011|5)/.test(digits)) return 'Discover'
+  return ''
+}
+
+function luhnValid(digits) {
+  if (!/^\d{12,19}$/.test(digits)) return false
+  let sum = 0
+  let alt = false
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let n = Number(digits[i])
+    if (alt) { n *= 2; if (n > 9) n -= 9 }
+    sum += n
+    alt = !alt
+  }
+  return sum % 10 === 0
+}
+
+function formatCardNumber(value) {
+  const digits = value.replace(/\D/g, '').slice(0, 19)
+  return digits.replace(/(.{4})/g, '$1 ').trim()
+}
+
+function formatExpiry(value) {
+  const digits = value.replace(/\D/g, '').slice(0, 4)
+  return digits.length <= 2 ? digits : `${digits.slice(0, 2)}/${digits.slice(2)}`
+}
+
+function expiryValid(value) {
+  const match = value.match(/^(\d{2})\/(\d{2})$/)
+  if (!match) return false
+  const month = Number(match[1])
+  const year = Number(match[2])
+  if (month < 1 || month > 12) return false
+  const expiresAfter = new Date(2000 + year, month, 1)
+  return expiresAfter > new Date()
+}
+
 function Stars({ value, count, size = 'sm' }) {
   const rounded = Math.round(value * 2) / 2
   return (
@@ -207,6 +249,11 @@ function App() {
   const [heroCursor, setHeroCursor] = useState({ x: 0, y: 0 })
   const [emailInput, setEmailInput] = useState('')
   const [subscribed, setSubscribed] = useState(false)
+  const [card, setCard] = useState({ number: '', name: '', expiry: '', cvc: '' })
+  const [cardFlipped, setCardFlipped] = useState(false)
+  const [payStage, setPayStage] = useState(null) // null | 'processing' | 'auth' | 'approved'
+  const [otp, setOtp] = useState('')
+  const [cardError, setCardError] = useState('')
 
   const [heroRef, heroInView] = useInView(0.1)
   const [shopRef, shopInView] = useInView(0.04)
@@ -388,22 +435,70 @@ function App() {
     setWishlist((current) => current.filter((item) => item.id !== product.id))
   }
 
-  async function placeOrder(event) {
-    event.preventDefault()
-    const response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: cart, total, subtotal, discount, promo: promo?.code || null, shipping, payment }) }).catch(() => null)
-    if (response?.ok) {
-      const data = await response.json()
-      setOrders((current) => [...current, data])
-      setCart([])
-      setCheckout(false)
-      removePromo()
-      setNotice('Order received. Thank you for shopping with us.')
-      setTimeout(() => setNotice(''), 3500)
-    } else {
-      setNotice('Something went wrong. Please try again.')
-      setTimeout(() => setNotice(''), 3500)
-    }
+  const cardDigits = card.number.replace(/\D/g, '')
+  const cardBrand = detectCardBrand(cardDigits)
+
+  function updateCard(field, rawValue) {
+    setCardError('')
+    let value = rawValue
+    if (field === 'number') value = formatCardNumber(rawValue)
+    else if (field === 'expiry') value = formatExpiry(rawValue)
+    else if (field === 'cvc') value = rawValue.replace(/\D/g, '').slice(0, cardBrand === 'Amex' ? 4 : 3)
+    setCard((current) => ({ ...current, [field]: value }))
   }
+
+  async function placeOrder() {
+    const cardMeta = payment === 'card' ? { brand: cardBrand || 'Card', last4: cardDigits.slice(-4) } : null
+    const received = { items: cart, total, subtotal, discount, promo: promo?.code || null, shipping, payment, card: cardMeta }
+    const response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(received) }).catch(() => null)
+    // On static hosting there is no API server, so fall back to a locally-recorded order.
+    const order = response?.ok
+      ? await response.json()
+      : { orderId: `NX-${Date.now()}`, status: 'New', createdAt: new Date().toISOString(), received }
+    setOrders((current) => [...current, order])
+    setCart([])
+    setCheckout(false)
+    removePromo()
+    setCard({ number: '', name: '', expiry: '', cvc: '' })
+    setNotice('Order received. Thank you for shopping with us.')
+    setTimeout(() => setNotice(''), 3500)
+    return true
+  }
+
+  // Checkout submit — routes card payments through the simulated gateway.
+  function startCheckout(event) {
+    event.preventDefault()
+    if (payment !== 'card') { placeOrder(); return }
+    if (!luhnValid(cardDigits)) { setCardError('Please check the card number.'); return }
+    if (!card.name.trim()) { setCardError('Enter the name printed on the card.'); return }
+    if (!expiryValid(card.expiry)) { setCardError('Card expiry date looks invalid.'); return }
+    if (card.cvc.length < 3) { setCardError('Enter the security code (CVC).'); return }
+    setCardError('')
+    setOtp('')
+    setPayStage('processing')
+    setTimeout(() => setPayStage('auth'), 1600)
+  }
+
+  function verifyPayment() {
+    if (otp.replace(/\D/g, '').length < 4) { setCardError('Enter the 6-digit code from your bank.'); return }
+    setCardError('')
+    setPayStage('processing')
+    setTimeout(() => {
+      setPayStage('approved')
+      setTimeout(async () => {
+        await placeOrder()
+        setPayStage(null)
+        setOtp('')
+      }, 1300)
+    }, 1500)
+  }
+
+  function cancelPayment() {
+    setPayStage(null)
+    setOtp('')
+    setCardError('')
+  }
+
 
   async function advanceOrderStatus(orderId) {
     const order = orders.find((item) => item.orderId === orderId)
@@ -972,7 +1067,7 @@ function App() {
               </>
             )}
             {checkout && (
-              <form className="checkout-form" onSubmit={placeOrder}>
+              <form className="checkout-form" onSubmit={startCheckout}>
                 <button type="button" className="back-button" onClick={() => setCheckout(false)}>← Back to bag</button>
                 <h2>Almost there.</h2>
                 <input required placeholder="Full name" />
@@ -988,19 +1083,110 @@ function App() {
                 </div>
                 {payment === 'card' && (
                   <>
-                    <input required inputMode="numeric" placeholder="Card number" pattern="[0-9 ]{12,19}" />
-                    <div className="card-row">
-                      <input required placeholder="MM / YY" />
-                      <input required placeholder="CVC" inputMode="numeric" />
+                    <div className={`card-preview brand-${(cardBrand || 'default').toLowerCase()} ${cardFlipped ? 'flipped' : ''}`}>
+                      <div className="card-face card-front">
+                        <div className="card-top">
+                          <span className="card-chip" aria-hidden="true" />
+                          <span className="card-brand">{cardBrand || 'CARD'}</span>
+                        </div>
+                        <div className="card-number">{card.number || '•••• •••• •••• ••••'}</div>
+                        <div className="card-meta">
+                          <div><small>Card holder</small><span>{card.name || 'YOUR NAME'}</span></div>
+                          <div><small>Expires</small><span>{card.expiry || 'MM/YY'}</span></div>
+                        </div>
+                      </div>
+                      <div className="card-face card-back">
+                        <div className="card-stripe" />
+                        <div className="card-cvc"><small>CVC</small><span>{card.cvc || '•••'}</span></div>
+                      </div>
                     </div>
+                    <input
+                      inputMode="numeric"
+                      autoComplete="cc-number"
+                      placeholder="Card number"
+                      value={card.number}
+                      onChange={(event) => updateCard('number', event.target.value)}
+                      onFocus={() => setCardFlipped(false)}
+                    />
+                    <input
+                      autoComplete="cc-name"
+                      placeholder="Name on card"
+                      value={card.name}
+                      onChange={(event) => updateCard('name', event.target.value)}
+                      onFocus={() => setCardFlipped(false)}
+                    />
+                    <div className="card-row">
+                      <input
+                        inputMode="numeric"
+                        autoComplete="cc-exp"
+                        placeholder="MM / YY"
+                        value={card.expiry}
+                        onChange={(event) => updateCard('expiry', event.target.value)}
+                        onFocus={() => setCardFlipped(false)}
+                      />
+                      <input
+                        inputMode="numeric"
+                        autoComplete="cc-csc"
+                        placeholder="CVC"
+                        value={card.cvc}
+                        onChange={(event) => updateCard('cvc', event.target.value)}
+                        onFocus={() => setCardFlipped(true)}
+                        onBlur={() => setCardFlipped(false)}
+                      />
+                    </div>
+                    {cardError && <p className="card-error" role="alert">{cardError}</p>}
+                    <p className="card-secure"><span aria-hidden="true">🔒</span> Secured simulation · no real card is charged</p>
                   </>
                 )}
                 {discount > 0 && <div className="checkout-total discount-line"><span>Discount ({promo.code})</span><strong>−${discount}</strong></div>}
                 <div className="checkout-total"><span>Total</span><strong>${total}</strong></div>
-                <button className="dark-button" type="submit">Place order <span>↗</span></button>
+                <button className="dark-button" type="submit">{payment === 'card' ? `Pay $${total}` : 'Place order'} <span>↗</span></button>
               </form>
             )}
           </aside>
+        </div>
+      )}
+      {payStage && (
+        <div className="gateway-overlay" role="dialog" aria-modal="true" aria-label="Payment">
+          <div className="gateway-modal">
+            {payStage === 'processing' && (
+              <div className="gateway-processing">
+                <div className="gateway-spinner" aria-hidden="true" />
+                <h3>Contacting your bank…</h3>
+                <p>Securing a connection with {cardBrand || 'your card'} ending {cardDigits.slice(-4) || '••••'}</p>
+              </div>
+            )}
+            {payStage === 'auth' && (
+              <div className="gateway-auth">
+                <span className="gateway-badge">3-D Secure</span>
+                <h3>Verify it's you</h3>
+                <p>Your bank sent a one-time code to the phone on file. Enter any 6 digits to approve this simulated payment of <strong>${total}</strong>.</p>
+                <input
+                  className="gateway-otp"
+                  inputMode="numeric"
+                  autoFocus
+                  placeholder="––––––"
+                  maxLength={6}
+                  value={otp}
+                  onChange={(event) => { setCardError(''); setOtp(event.target.value.replace(/\D/g, '').slice(0, 6)) }}
+                />
+                {cardError && <p className="card-error" role="alert">{cardError}</p>}
+                <div className="gateway-actions">
+                  <button type="button" className="ghost-button" onClick={cancelPayment}>Cancel</button>
+                  <button type="button" className="dark-button" onClick={verifyPayment}>Verify &amp; pay</button>
+                </div>
+              </div>
+            )}
+            {payStage === 'approved' && (
+              <div className="gateway-approved">
+                <div className="gateway-check" aria-hidden="true">
+                  <svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24" /><path d="M14 27l8 8 16-16" /></svg>
+                </div>
+                <h3>Payment approved</h3>
+                <p>Finalising your order…</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -2299,6 +2299,7 @@ footer {
 .card-preview {
   position: relative;
   height: 176px;
+  min-height: 176px;
   flex: none;
   margin: 6px 0 14px;
   perspective: 1200px;

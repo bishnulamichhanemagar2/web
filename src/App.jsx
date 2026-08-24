@@ -30,7 +30,21 @@ const productsSeed = [
 ]
 
 const materialByCategory = { Furniture: 'Wood', Lighting: 'Metal', Tabletop: 'Ceramic', Accessories: 'Leather', Textiles: 'Linen', Objects: 'Wax', Clothes: 'Cotton', Cups: 'Ceramic', Watches: 'Steel', TVs: 'Glass', Mobiles: 'Aluminium', Lights: 'Metal', Laptops: 'Aluminium' }
-const addMaterial = (product) => ({ ...product, material: product.material || materialByCategory[product.category] || 'Mixed material' })
+
+// Deterministic pseudo-random from an id, so ratings stay stable across renders/reloads.
+function seededFraction(id, salt) {
+  const value = Math.sin(id * salt) * 10000
+  return value - Math.floor(value)
+}
+const ratingFor = (id) => Math.round((3.9 + seededFraction(id, 999.13) * 1.1) * 10) / 10
+const reviewsFor = (id) => 12 + Math.floor(seededFraction(id, 137.5) * 240)
+
+const addComputed = (product) => ({
+  ...product,
+  material: product.material || materialByCategory[product.category] || 'Mixed material',
+  rating: product.rating || ratingFor(product.id),
+  reviews: product.reviews || reviewsFor(product.id),
+})
 
 const rotatingWords = ['better.', 'calmer.', 'joyful.', 'yours.']
 
@@ -42,9 +56,30 @@ const categoryTiles = [
 ]
 
 const WISHLIST_KEY = 'nexus-wishlist'
+const CART_KEY = 'nexus-cart'
+const RECENT_KEY = 'nexus-recent'
 const ORDER_FLOW = ['New', 'Processing', 'Shipped', 'Delivered']
 
+// Promo codes accepted at checkout.
+const PROMOS = {
+  NEXUS10: { type: 'pct', value: 0.1, label: '10% off your order' },
+  WELCOME15: { type: 'flat', value: 15, label: '$15 off your first order' },
+}
+
 /* ---------- Animation helpers ---------- */
+function usePersistentState(key, initial) {
+  const [value, setValue] = useState(() => {
+    try {
+      const stored = localStorage.getItem(key)
+      return stored != null ? JSON.parse(stored) : initial
+    } catch { return initial }
+  })
+  useEffect(() => {
+    try { localStorage.setItem(key, JSON.stringify(value)) } catch { }
+  }, [key, value])
+  return [value, setValue]
+}
+
 function useInView(threshold = 0.12) {
   const ref = useRef(null)
   const [inView, setInView] = useState(false)
@@ -129,28 +164,43 @@ function OrderStepper({ status }) {
   )
 }
 
+function Stars({ value, count, size = 'sm' }) {
+  const rounded = Math.round(value * 2) / 2
+  return (
+    <span className={`stars stars-${size}`} role="img" aria-label={`Rated ${value} out of 5`}>
+      <span className="stars-track">★★★★★</span>
+      <span className="stars-fill" style={{ width: `${(rounded / 5) * 100}%` }}>★★★★★</span>
+      {count != null && <small className="stars-count">{value.toFixed(1)} ({count})</small>}
+    </span>
+  )
+}
+
 function App() {
-  const [products, setProducts] = useState(productsSeed.map(addMaterial))
+  const [products, setProducts] = useState(productsSeed.map(addComputed))
   const [loading, setLoading] = useState(true)
   const [category, setCategory] = useState('All pieces')
   const [material, setMaterial] = useState('All materials')
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('featured')
-  const [cart, setCart] = useState([])
+  const [maxPrice, setMaxPrice] = useState(null)
+  const [cart, setCart] = usePersistentState(CART_KEY, [])
   const [cartOpen, setCartOpen] = useState(false)
   const [checkout, setCheckout] = useState(false)
   const [notice, setNotice] = useState('')
   const [shipping, setShipping] = useState('standard')
   const [payment, setPayment] = useState('card')
+  const [promoInput, setPromoInput] = useState('')
+  const [promo, setPromo] = useState(null)
+  const [promoError, setPromoError] = useState('')
   const [orders, setOrders] = useState([])
   const [adminOpen, setAdminOpen] = useState(false)
   const [editorialChoice, setEditorialChoice] = useState('Materials')
   const [view, setView] = useState(window.location.hash === '#shop' ? 'shop' : window.location.hash === '#about' ? 'about' : 'home')
-  const [wishlist, setWishlist] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(WISHLIST_KEY) || '[]') } catch { return [] }
-  })
+  const [wishlist, setWishlist] = usePersistentState(WISHLIST_KEY, [])
+  const [recent, setRecent] = usePersistentState(RECENT_KEY, [])
   const [wishlistOpen, setWishlistOpen] = useState(false)
   const [quickView, setQuickView] = useState(null)
+  const [qvQty, setQvQty] = useState(1)
   const [menuOpen, setMenuOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [rotatingIndex, setRotatingIndex] = useState(0)
@@ -165,7 +215,7 @@ function App() {
     let active = true
     fetch('/api/products')
       .then((response) => (response.ok ? response.json() : Promise.reject()))
-      .then((items) => { if (active && Array.isArray(items) && items.length) setProducts(items.map(addMaterial)) })
+      .then((items) => { if (active && Array.isArray(items) && items.length) setProducts(items.map(addComputed)) })
       .catch(() => { })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
@@ -179,7 +229,9 @@ function App() {
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
 
-  useEffect(() => { try { localStorage.setItem(WISHLIST_KEY, JSON.stringify(wishlist)) } catch { } }, [wishlist])
+  // wishlist, cart, and recently-viewed persist via usePersistentState.
+
+  useEffect(() => { setQvQty(1) }, [quickView])
 
   useEffect(() => {
     const onKey = (event) => {
@@ -200,6 +252,11 @@ function App() {
 
   const categories = ['All pieces', ...new Set(products.map((product) => product.category))]
   const materials = ['All materials', ...new Set(products.map((product) => product.material))]
+  const priceBounds = useMemo(() => {
+    const prices = products.map((product) => product.price)
+    return { min: Math.floor(Math.min(...prices)), max: Math.ceil(Math.max(...prices)) }
+  }, [products])
+  const priceCap = maxPrice ?? priceBounds.max
 
   useEffect(() => {
     const timer = setInterval(() => setRotatingIndex((index) => (index + 1) % rotatingWords.length), 2600)
@@ -213,19 +270,23 @@ function App() {
     const filtered = products.filter((product) =>
       (category === 'All pieces' || product.category === category) &&
       (material === 'All materials' || product.material === material) &&
+      (maxPrice == null || product.price <= maxPrice) &&
       product.name.toLowerCase().includes(query.toLowerCase())
     )
     const sorted = [...filtered]
     if (sort === 'price-asc') sorted.sort((a, b) => a.price - b.price)
     else if (sort === 'price-desc') sorted.sort((a, b) => b.price - a.price)
     else if (sort === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name))
+    else if (sort === 'rating') sorted.sort((a, b) => b.rating - a.rating)
     return sorted
-  }, [products, category, material, query, sort])
+  }, [products, category, material, maxPrice, query, sort])
 
   const itemCount = cart.reduce((total, item) => total + item.quantity, 0)
   const subtotal = cart.reduce((total, item) => total + item.price * item.quantity, 0)
-  const shippingCost = shipping === 'express' ? 24 : subtotal >= 150 ? 0 : 12
-  const total = subtotal + shippingCost
+  const discount = promo ? (promo.type === 'pct' ? Math.round(subtotal * promo.value) : Math.min(promo.value, subtotal)) : 0
+  const discountedSubtotal = Math.max(0, subtotal - discount)
+  const shippingCost = shipping === 'express' ? 24 : discountedSubtotal >= 150 ? 0 : 12
+  const total = discountedSubtotal + shippingCost
 
   const revenue = orders.reduce((sum, order) => sum + (order.received?.total || 0), 0)
   const revenueHistory = orders.slice().sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)).map((order) => order.received?.total || 0)
@@ -265,13 +326,46 @@ function App() {
     goTo('shop')
   }
 
-  function addToCart(product) {
+  function trackRecent(product) {
+    setRecent((current) => {
+      const lite = { id: product.id, name: product.name, price: product.price, image: product.image, material: product.material, category: product.category, detail: product.detail, tone: product.tone, rating: product.rating, reviews: product.reviews }
+      return [lite, ...current.filter((item) => item.id !== product.id)].slice(0, 8)
+    })
+  }
+
+  function openQuickView(product) {
+    setQuickView(product)
+    trackRecent(product)
+  }
+
+  function addToCart(product, qty = 1) {
     setCart((current) => {
       const found = current.find((item) => item.id === product.id)
-      return found ? current.map((item) => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item) : [...current, { ...product, quantity: 1 }]
+      return found ? current.map((item) => item.id === product.id ? { ...item, quantity: item.quantity + qty } : item) : [...current, { ...product, quantity: qty }]
     })
+    trackRecent(product)
     setNotice(`${product.name} added to your bag`)
     setTimeout(() => setNotice(''), 2200)
+  }
+
+  function applyPromo(event) {
+    event?.preventDefault?.()
+    const code = promoInput.trim().toUpperCase()
+    if (!code) return
+    const match = PROMOS[code]
+    if (match) {
+      setPromo({ code, ...match })
+      setPromoError('')
+    } else {
+      setPromo(null)
+      setPromoError('That code isn’t valid.')
+    }
+  }
+
+  function removePromo() {
+    setPromo(null)
+    setPromoInput('')
+    setPromoError('')
   }
 
   function updateQuantity(id, change) {
@@ -294,12 +388,13 @@ function App() {
 
   async function placeOrder(event) {
     event.preventDefault()
-    const response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: cart, total, shipping, payment }) }).catch(() => null)
+    const response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: cart, total, subtotal, discount, promo: promo?.code || null, shipping, payment }) }).catch(() => null)
     if (response?.ok) {
       const data = await response.json()
       setOrders((current) => [...current, data])
       setCart([])
       setCheckout(false)
+      removePromo()
       setNotice('Order received. Thank you for shopping with us.')
       setTimeout(() => setNotice(''), 3500)
     } else {
@@ -324,6 +419,7 @@ function App() {
     setMaterial('All materials')
     setQuery('')
     setSort('featured')
+    setMaxPrice(null)
   }
 
   return (
@@ -434,10 +530,26 @@ function App() {
               <span>Material</span>
               {materials.map((item) => <button className={material === item ? 'active' : ''} key={item} onClick={() => setMaterial(item)}>{item}</button>)}
             </div>
+            <div className="price-filter">
+              <label htmlFor="price-range">Max price <b>{maxPrice == null ? 'Any' : `$${priceCap}`}</b></label>
+              <input
+                id="price-range"
+                type="range"
+                min={priceBounds.min}
+                max={priceBounds.max}
+                step="10"
+                value={priceCap}
+                onChange={(event) => {
+                  const next = Number(event.target.value)
+                  setMaxPrice(next >= priceBounds.max ? null : next)
+                }}
+              />
+            </div>
             <div className="sort-control">
               <label htmlFor="sort">Sort</label>
               <select id="sort" value={sort} onChange={(event) => setSort(event.target.value)}>
                 <option value="featured">Featured</option>
+                <option value="rating">Top rated</option>
                 <option value="price-asc">Price ↑</option>
                 <option value="price-desc">Price ↓</option>
                 <option value="name">A–Z</option>
@@ -472,7 +584,7 @@ function App() {
                       <p className="hover-detail">{product.detail}</p>
                       <div className="hover-price-row">
                         <strong>${product.price}</strong>
-                        <button className="hover-quickview" onClick={(event) => { event.stopPropagation(); setQuickView(product) }}>Quick view <span className="qv-arrow">↗</span></button>
+                        <button className="hover-quickview" onClick={(event) => { event.stopPropagation(); openQuickView(product) }}>Quick view <span className="qv-arrow">↗</span></button>
                       </div>
                       <button className="hover-add" onClick={(event) => { event.stopPropagation(); addToCart(product) }}>
                         <span className="hover-add-label">Add to bag</span>
@@ -481,11 +593,12 @@ function App() {
                     </div>
                     <button className="add-button" aria-label={`Add ${product.name} to bag`} onClick={() => addToCart(product)}>+</button>
                     <button className={`wishlist-toggle ${wishlist.some((item) => item.id === product.id) ? 'active' : ''}`} aria-label={`Save ${product.name}`} onClick={() => toggleWishlist(product)}>{wishlist.some((item) => item.id === product.id) ? '♥' : '♡'}</button>
-                    <button className="quickview-trigger" onClick={() => setQuickView(product)} style={{ position: 'absolute', inset: 0, background: 'transparent', border: 0, cursor: 'pointer' }} aria-label={`Quick view ${product.name}`} />
+                    <button className="quickview-trigger" onClick={() => openQuickView(product)} style={{ position: 'absolute', inset: 0, background: 'transparent', border: 0, cursor: 'pointer' }} aria-label={`Quick view ${product.name}`} />
                   </div>
                   <div className="product-meta">
                     <div>
                       <h3>{product.name}</h3>
+                      <Stars value={product.rating} count={product.reviews} />
                       <p>{product.detail} · {product.material}</p>
                     </div>
                     <strong>${product.price}</strong>
@@ -495,6 +608,24 @@ function App() {
               ))
             )}
           </div>
+
+          {recent.length > 0 && (
+            <div className="recent-viewed">
+              <div className="recent-head">
+                <h3>Recently viewed</h3>
+                <button className="recent-clear" onClick={() => setRecent([])}>Clear</button>
+              </div>
+              <div className="recent-track">
+                {recent.map((item) => (
+                  <button className="recent-card" key={item.id} onClick={() => openQuickView(item)}>
+                    <img src={item.image} alt={item.name} loading="lazy" />
+                    <span className="recent-name">{item.name}</span>
+                    <span className="recent-price">${item.price}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
 
         <section ref={storyRef} className={`story-section about-content ${storyInView ? 'in-view' : ''}`}>
@@ -533,6 +664,12 @@ function App() {
 
       {notice && <div className="toast" key={notice}>{notice} <span>×</span></div>}
 
+      <button
+        className={`scroll-top ${scrolled ? 'visible' : ''}`}
+        aria-label="Back to top"
+        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+      >↑</button>
+
       {menuOpen && (
         <div className="mobile-menu">
           <div className="mobile-menu-head">
@@ -556,9 +693,18 @@ function App() {
             <div className="quickview-body">
               <p className="eyebrow">{quickView.category}</p>
               <h2>{quickView.name}</h2>
+              <Stars value={quickView.rating} count={quickView.reviews} size="md" />
               <p className="qv-detail">{quickView.detail} · {quickView.material}</p>
               <span className="qv-price">${quickView.price}</span>
-              <button className="dark-button" onClick={() => { addToCart(quickView); setQuickView(null) }}>Add to bag <span>↗</span></button>
+              <div className="qv-qty">
+                <span>Quantity</span>
+                <div className="quantity">
+                  <button aria-label="Decrease quantity" onClick={() => setQvQty((q) => Math.max(1, q - 1))}>−</button>
+                  <span>{qvQty}</span>
+                  <button aria-label="Increase quantity" onClick={() => setQvQty((q) => q + 1)}>+</button>
+                </div>
+              </div>
+              <button className="dark-button" onClick={() => { addToCart(quickView, qvQty); setQuickView(null) }}>Add {qvQty > 1 ? `${qvQty} ` : ''}to bag <span>↗</span></button>
               <button className={`wishlist-toggle ${wishlist.some((item) => item.id === quickView.id) ? 'active' : ''}`} style={{ position: 'static', borderRadius: 0, width: 'auto', height: 'auto', padding: '12px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid var(--ink)' }} onClick={() => toggleWishlist(quickView)}>
                 {wishlist.some((item) => item.id === quickView.id) ? '♥ Saved' : '♡ Save for later'}
               </button>
@@ -712,7 +858,20 @@ function App() {
                     </div>
                   ))}
                 </div>
+                <div className="promo-box">
+                  <form className="promo-row" onSubmit={applyPromo}>
+                    <input aria-label="Promo code" placeholder="Promo code (try NEXUS10)" value={promoInput} onChange={(event) => { setPromoInput(event.target.value); setPromoError('') }} />
+                    {promo ? (
+                      <button type="button" className="promo-remove" onClick={removePromo}>Remove</button>
+                    ) : (
+                      <button type="submit" className="promo-apply">Apply</button>
+                    )}
+                  </form>
+                  {promoError && <small className="promo-error">{promoError}</small>}
+                  {promo && <small className="promo-ok">✓ {promo.code} — {promo.label}</small>}
+                </div>
                 <div className="cart-total"><span>Subtotal</span><strong>${subtotal}</strong></div>
+                {discount > 0 && <div className="cart-total discount-line"><span>Discount</span><strong>−${discount}</strong></div>}
                 <button className="dark-button checkout-button" onClick={() => setCheckout(true)}>Checkout <span>↗</span></button>
               </>
             )}
@@ -724,7 +883,7 @@ function App() {
                 <input required type="email" placeholder="Email address" />
                 <input required placeholder="Delivery address" />
                 <h3>Shipping</h3>
-                <label className="option-row"><input type="radio" name="shipping" checked={shipping === 'standard'} onChange={() => setShipping('standard')} /> Standard delivery <span>{subtotal >= 150 ? 'Free' : '$12'}</span></label>
+                <label className="option-row"><input type="radio" name="shipping" checked={shipping === 'standard'} onChange={() => setShipping('standard')} /> Standard delivery <span>{discountedSubtotal >= 150 ? 'Free' : '$12'}</span></label>
                 <label className="option-row"><input type="radio" name="shipping" checked={shipping === 'express'} onChange={() => setShipping('express')} /> Express delivery <span>$24</span></label>
                 <h3>Payment</h3>
                 <div className="payment-options">
@@ -740,6 +899,7 @@ function App() {
                     </div>
                   </>
                 )}
+                {discount > 0 && <div className="checkout-total discount-line"><span>Discount ({promo.code})</span><strong>−${discount}</strong></div>}
                 <div className="checkout-total"><span>Total</span><strong>${total}</strong></div>
                 <button className="dark-button" type="submit">Place order <span>↗</span></button>
               </form>

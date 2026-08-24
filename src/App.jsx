@@ -205,6 +205,8 @@ function App() {
   const [scrolled, setScrolled] = useState(false)
   const [rotatingIndex, setRotatingIndex] = useState(0)
   const [heroCursor, setHeroCursor] = useState({ x: 0, y: 0 })
+  const [emailInput, setEmailInput] = useState('')
+  const [subscribed, setSubscribed] = useState(false)
 
   const [heroRef, heroInView] = useInView(0.1)
   const [shopRef, shopInView] = useInView(0.04)
@@ -420,6 +422,19 @@ function App() {
     setQuery('')
     setSort('featured')
     setMaxPrice(null)
+  }
+
+  function subscribe(event) {
+    event.preventDefault()
+    const valid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailInput.trim())
+    if (!valid) {
+      setNotice('Please enter a valid email address.')
+      setTimeout(() => setNotice(''), 2400)
+      return
+    }
+    setSubscribed(true)
+    setNotice('You’re on the list — welcome to Nexus+.')
+    setTimeout(() => setNotice(''), 3200)
   }
 
   return (
@@ -656,10 +671,91 @@ function App() {
       </main>
 
       <footer id="journal">
-        <div className="footer-brand">NEXUS<span>+</span><p>Everyday, considered.</p></div>
-        <div><p className="footer-label">Visit</p><p>Instagram<br />Pinterest<br />Newsletter</p></div>
-        <div><p className="footer-label">Help</p><p>Shipping & returns<br />Contact us<br />FAQ</p></div>
-        <small>© 2026 Nexus Objects</small>
+        <div className="footer-main">
+          <div className="footer-brand-col">
+            <div className="footer-brand">NEXUS<span>+</span></div>
+            <p className="footer-tagline">Objects for considered living. Thoughtfully made goods for a calmer, more characterful everyday.</p>
+            <div className="footer-social">
+              {[
+                { name: 'Instagram', icon: 'M12 2.2c3.2 0 3.6 0 4.9.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.27.07 1.65.07 4.86s0 3.6-.07 4.86c-.05 1.17-.25 1.8-.41 2.23a3.7 3.7 0 0 1-.9 1.38c-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.27.06-1.65.07-4.86.07s-3.6 0-4.86-.07c-1.17-.05-1.8-.25-2.23-.41a3.7 3.7 0 0 1-1.38-.9 3.7 3.7 0 0 1-.9-1.38c-.16-.42-.36-1.06-.41-2.23C2.21 15.6 2.2 15.2 2.2 12s0-3.6.07-4.86c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.06-.36 2.23-.41C8.4 2.21 8.8 2.2 12 2.2Zm0 3.05A6.75 6.75 0 1 0 18.75 12 6.75 6.75 0 0 0 12 5.25Zm0 11.13A4.38 4.38 0 1 1 16.38 12 4.38 4.38 0 0 1 12 16.38Zm6.98-11.4a1.58 1.58 0 1 1-1.58-1.57 1.58 1.58 0 0 1 1.58 1.57Z' },
+                { name: 'Pinterest', icon: 'M12 2a10 10 0 0 0-3.65 19.31c-.09-.8-.17-2.04.04-2.92.18-.78 1.18-4.98 1.18-4.98s-.3-.6-.3-1.5c0-1.4.82-2.45 1.83-2.45.86 0 1.28.65 1.28 1.42 0 .87-.55 2.16-.84 3.36-.24 1 .5 1.82 1.49 1.82 1.79 0 3.16-1.89 3.16-4.61 0-2.41-1.73-4.1-4.2-4.1a4.35 4.35 0 0 0-4.54 4.36c0 .86.33 1.79.75 2.29a.3.3 0 0 1 .07.29c-.08.31-.25.98-.28 1.12-.04.18-.15.22-.34.13-1.25-.58-2.03-2.4-2.03-3.87 0-3.15 2.29-6.04 6.6-6.04 3.46 0 6.16 2.47 6.16 5.77 0 3.44-2.17 6.21-5.18 6.21-1.01 0-1.97-.53-2.29-1.15l-.62 2.37c-.23.87-.83 1.96-1.24 2.62A10 10 0 1 0 12 2Z' },
+                { name: 'Newsletter', icon: 'M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm1.4 2 7.6 5.3L19.6 7H4.4ZM20 8.6l-7.4 5.2a1 1 0 0 1-1.2 0L4 8.6V17h16V8.6Z' },
+              ].map((social) => (
+                <button
+                  key={social.name}
+                  className="social-btn"
+                  aria-label={social.name}
+                  title={social.name}
+                  onClick={() => { setNotice(`${social.name} — coming soon.`); setTimeout(() => setNotice(''), 2000) }}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d={social.icon} /></svg>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="footer-links">
+            <div className="footer-col">
+              <p className="footer-label">Shop</p>
+              <ul>
+                {['Furniture', 'Lighting', 'Textiles', 'Tabletop'].map((cat) => (
+                  <li key={cat}><button onClick={() => openCategory(cat)}>{cat}</button></li>
+                ))}
+                <li><button onClick={() => goTo('shop')}>New in</button></li>
+              </ul>
+            </div>
+            <div className="footer-col">
+              <p className="footer-label">Company</p>
+              <ul>
+                <li><button onClick={() => goTo('about')}>About</button></li>
+                <li><button onClick={() => goTo('about')}>Materials</button></li>
+                <li><button onClick={() => goTo('about')}>Sustainability</button></li>
+                <li><button onClick={() => setAdminOpen(true)}>Control panel</button></li>
+              </ul>
+            </div>
+            <div className="footer-col">
+              <p className="footer-label">Help</p>
+              <ul>
+                <li><span>Shipping &amp; returns</span></li>
+                <li><span>Contact us</span></li>
+                <li><span>FAQ</span></li>
+                <li><span>Track order</span></li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="footer-newsletter">
+            <p className="footer-label">The weekly edit</p>
+            <p className="newsletter-copy">New pieces, quietly. One considered email a week — no noise, unsubscribe anytime.</p>
+            {subscribed ? (
+              <div className="newsletter-done">
+                <span className="newsletter-check">✓</span>
+                <span>You’re subscribed. Look out for us on Sundays.</span>
+              </div>
+            ) : (
+              <form className="newsletter-form" onSubmit={subscribe}>
+                <input
+                  type="email"
+                  inputMode="email"
+                  aria-label="Email address"
+                  placeholder="you@example.com"
+                  value={emailInput}
+                  onChange={(event) => setEmailInput(event.target.value)}
+                />
+                <button type="submit" aria-label="Subscribe">→</button>
+              </form>
+            )}
+          </div>
+        </div>
+
+        <div className="footer-bottom">
+          <small>© 2026 Nexus Objects — Everyday, considered.</small>
+          <div className="footer-legal">
+            <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>Back to top ↑</button>
+            <span>Privacy</span>
+            <span>Terms</span>
+          </div>
+        </div>
       </footer>
 
       {notice && <div className="toast" key={notice}>{notice} <span>×</span></div>}

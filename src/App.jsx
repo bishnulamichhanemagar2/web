@@ -59,6 +59,7 @@ const WISHLIST_KEY = 'nexus-wishlist'
 const CART_KEY = 'nexus-cart'
 const RECENT_KEY = 'nexus-recent'
 const ORDERS_KEY = 'nexus-orders'
+const CUSTOMER_KEY = 'nexus-customer'
 const ORDER_FLOW = ['New', 'Processing', 'Shipped', 'Delivered']
 // A customer may only pull an order back before it leaves the warehouse.
 const CANCELLABLE = ['New', 'Processing']
@@ -252,6 +253,8 @@ function App() {
   const [editorialChoice, setEditorialChoice] = useState('Materials')
   const [view, setView] = useState(window.location.hash === '#shop' ? 'shop' : window.location.hash === '#about' ? 'about' : 'home')
   const [wishlist, setWishlist] = usePersistentState(WISHLIST_KEY, [])
+  const [wishSelected, setWishSelected] = useState([])
+  const [customer, setCustomer] = usePersistentState(CUSTOMER_KEY, { name: '', email: '', address: '' })
   const [recent, setRecent] = usePersistentState(RECENT_KEY, [])
   const [wishlistOpen, setWishlistOpen] = useState(false)
   const [quickView, setQuickView] = useState(null)
@@ -308,6 +311,12 @@ function App() {
   // wishlist, cart, and recently-viewed persist via usePersistentState.
 
   useEffect(() => { setQvQty(1) }, [quickView])
+
+  // When the Saved drawer opens, pre-select every item so the shopper can
+  // simply uncheck the pieces they don't want to buy right now.
+  useEffect(() => {
+    if (wishlistOpen) setWishSelected(wishlist.map((item) => item.id))
+  }, [wishlistOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const onKey = (event) => {
@@ -462,6 +471,30 @@ function App() {
     setWishlist((current) => current.filter((item) => item.id !== product.id))
   }
 
+  function toggleWishSelect(id) {
+    setWishSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
+  }
+
+  const allWishSelected = wishlist.length > 0 && wishSelected.length === wishlist.length
+  const selectedWishItems = wishlist.filter((item) => wishSelected.includes(item.id))
+  const selectedWishTotal = selectedWishItems.reduce((sum, item) => sum + item.price, 0)
+
+  function toggleSelectAllWish() {
+    setWishSelected(allWishSelected ? [] : wishlist.map((item) => item.id))
+  }
+
+  // Move only the ticked pieces into the bag, then hand off to checkout.
+  function checkoutSelectedWish() {
+    if (selectedWishItems.length === 0) return
+    selectedWishItems.forEach((item) => addToCart(item))
+    setWishlist((current) => current.filter((item) => !wishSelected.includes(item.id)))
+    setWishSelected([])
+    setWishlistOpen(false)
+    setCartOpen(true)
+    setNotice(`${selectedWishItems.length} piece${selectedWishItems.length === 1 ? '' : 's'} moved to your bag`)
+    setTimeout(() => setNotice(''), 2400)
+  }
+
   const cardDigits = card.number.replace(/\D/g, '')
   const cardBrand = detectCardBrand(cardDigits)
 
@@ -476,7 +509,8 @@ function App() {
 
   async function placeOrder() {
     const cardMeta = payment === 'card' ? { brand: cardBrand || 'Card', last4: cardDigits.slice(-4) } : null
-    const received = { items: cart, total, subtotal, discount, promo: promo?.code || null, shipping, payment, card: cardMeta }
+    const contact = { name: customer.name.trim(), email: customer.email.trim(), address: customer.address.trim() }
+    const received = { items: cart, total, subtotal, discount, promo: promo?.code || null, shipping, payment, card: cardMeta, customer: contact }
     const response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(received) }).catch(() => null)
     // On static hosting there is no API server, so fall back to a locally-recorded order.
     const order = response?.ok
@@ -607,9 +641,9 @@ function App() {
             <input aria-label="Search products" placeholder="Search" value={query} onChange={(event) => setQuery(event.target.value)} />
           </label>
           <button className="admin-link" onClick={() => setAdminOpen(true)}>Control panel</button>
-          <button className="orders-button" onClick={() => setTrackOpen(true)}>Orders <b>{orders.length}</b></button>
-          <button className="wishlist-button" onClick={() => setWishlistOpen(true)}>Saved <b>{wishlist.length}</b></button>
-          <button key={`bag-${itemCount}`} className="bag-button" onClick={() => setCartOpen(true)}>Bag <b>{itemCount}</b></button>
+          <button className="pill-button orders-button" onClick={() => setTrackOpen(true)}>Orders <b key={orders.length}>{orders.length}</b></button>
+          <button className="pill-button wishlist-button" onClick={() => setWishlistOpen(true)}>Saved <b key={wishlist.length}>{wishlist.length}</b></button>
+          <button className="pill-button bag-button" onClick={() => setCartOpen(true)}>Bag <b key={itemCount}>{itemCount}</b></button>
           <button className="menu-toggle" aria-label="Open menu" onClick={() => setMenuOpen(true)}>☰</button>
         </div>
       </header>
@@ -972,19 +1006,41 @@ function App() {
                 <span>Tap the heart on any piece to keep it here.</span>
               </div>
             ) : (
-              <div className="cart-items">
-                {wishlist.map((item) => (
-                  <div className="wishlist-item" key={item.id}>
-                    <img src={item.image} alt="" />
-                    <div>
-                      <h3>{item.name}</h3>
-                      <p>${item.price} · {item.material}</p>
-                      <button className="move-btn" onClick={() => moveWishlistToCart(item)}>Move to bag →</button>
-                    </div>
-                    <button className="back-button" style={{ fontSize: '18px', padding: '0 0 0 8px' }} aria-label="Remove" onClick={() => toggleWishlist(item)}>×</button>
+              <>
+                <div className="wish-select-bar">
+                  <button type="button" className="wish-selectall" onClick={toggleSelectAllWish}>
+                    <span className={`wish-check ${allWishSelected ? 'checked' : ''}`} aria-hidden="true">{allWishSelected ? '✓' : ''}</span>
+                    {allWishSelected ? 'Clear all' : 'Select all'}
+                  </button>
+                  <span className="wish-select-count">{selectedWishItems.length} of {wishlist.length} chosen</span>
+                </div>
+                <div className="cart-items">
+                  {wishlist.map((item) => {
+                    const chosen = wishSelected.includes(item.id)
+                    return (
+                      <div className={`wishlist-item ${chosen ? 'chosen' : ''}`} key={item.id}>
+                        <button type="button" className={`wish-check ${chosen ? 'checked' : ''}`} aria-label={chosen ? `Deselect ${item.name}` : `Select ${item.name}`} aria-pressed={chosen} onClick={() => toggleWishSelect(item.id)}>{chosen ? '✓' : ''}</button>
+                        <img src={item.image} alt="" />
+                        <div>
+                          <h3>{item.name}</h3>
+                          <p>${item.price} · {item.material}</p>
+                          <button className="move-btn" onClick={() => moveWishlistToCart(item)}>Move to bag →</button>
+                        </div>
+                        <button className="back-button" style={{ fontSize: '18px', padding: '0 0 0 8px' }} aria-label="Remove" onClick={() => toggleWishlist(item)}>×</button>
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="wish-checkout">
+                  <div className="wish-checkout-total">
+                    <span>{selectedWishItems.length} selected</span>
+                    <strong>${selectedWishTotal}</strong>
                   </div>
-                ))}
-              </div>
+                  <button className="dark-button" disabled={selectedWishItems.length === 0} onClick={checkoutSelectedWish}>
+                    Move selected to bag <span>↗</span>
+                  </button>
+                </div>
+              </>
             )}
           </aside>
         </div>
@@ -1131,9 +1187,9 @@ function App() {
               <form className="checkout-form" onSubmit={startCheckout}>
                 <button type="button" className="back-button" onClick={() => setCheckout(false)}>← Back to bag</button>
                 <h2>Almost there.</h2>
-                <input required placeholder="Full name" />
-                <input required type="email" placeholder="Email address" />
-                <input required placeholder="Delivery address" />
+                <input required placeholder="Full name" autoComplete="name" value={customer.name} onChange={(event) => setCustomer((c) => ({ ...c, name: event.target.value }))} />
+                <input required type="email" placeholder="Email address" autoComplete="email" value={customer.email} onChange={(event) => setCustomer((c) => ({ ...c, email: event.target.value }))} />
+                <input required placeholder="Delivery address" autoComplete="street-address" value={customer.address} onChange={(event) => setCustomer((c) => ({ ...c, address: event.target.value }))} />
                 <h3>Shipping</h3>
                 <label className="option-row"><input type="radio" name="shipping" checked={shipping === 'standard'} onChange={() => setShipping('standard')} /> Standard delivery <span>{discountedSubtotal >= 150 ? 'Free' : '$12'}</span></label>
                 <label className="option-row"><input type="radio" name="shipping" checked={shipping === 'express'} onChange={() => setShipping('express')} /> Express delivery <span>$24</span></label>
@@ -1232,6 +1288,11 @@ function App() {
                     const items = order.received?.items || []
                     const units = items.reduce((sum, item) => sum + item.quantity, 0)
                     const cancellable = CANCELLABLE.includes(order.status)
+                    const contact = order.received?.customer
+                    const payLabel = order.received?.payment === 'card'
+                      ? `${order.received?.card?.brand || 'Card'} ···· ${order.received?.card?.last4 || '••••'}`
+                      : 'Pay on delivery'
+                    const shipLabel = order.received?.shipping === 'express' ? 'Express delivery' : 'Standard delivery'
                     return (
                       <div className={`admin-order-card track-order-card ${order.status === 'Cancelled' ? 'is-cancelled' : ''}`} key={order.orderId}>
                         <div className="admin-order-top">
@@ -1245,6 +1306,15 @@ function App() {
                           {items.length > 4 && <span className="track-more">+{items.length - 4}</span>}
                           <span className="track-item-summary">{units} item{units === 1 ? '' : 's'} · {new Date(order.createdAt).toLocaleDateString()}</span>
                         </div>
+                        {(contact?.name || contact?.address || contact?.email) && (
+                          <dl className="track-order-details">
+                            {contact.name && (<><dt>Recipient</dt><dd>{contact.name}</dd></>)}
+                            {contact.address && (<><dt>Ship to</dt><dd>{contact.address}</dd></>)}
+                            {contact.email && (<><dt>Contact</dt><dd>{contact.email}</dd></>)}
+                            <dt>Delivery</dt><dd>{shipLabel}</dd>
+                            <dt>Payment</dt><dd>{payLabel}</dd>
+                          </dl>
+                        )}
                         <OrderStepper status={order.status} />
                         <div className="admin-order-foot track-order-foot">
                           <span className={`order-status status-${order.status.toLowerCase()}`}>{order.status === 'Cancelled' ? '✕ Cancelled' : order.status}</span>

@@ -318,6 +318,12 @@ function App() {
     if (wishlistOpen) setWishSelected(wishlist.map((item) => item.id))
   }, [wishlistOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Keep the selection in sync when items leave the wishlist (removed with ×
+  // or moved individually), so the "Clear all" toggle and totals stay honest.
+  useEffect(() => {
+    setWishSelected((current) => current.filter((id) => wishlist.some((item) => item.id === id)))
+  }, [wishlist])
+
   useEffect(() => {
     const onKey = (event) => {
       if (event.key === 'Escape') {

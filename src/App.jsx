@@ -217,6 +217,18 @@ function expiryValid(value) {
   return expiresAfter > new Date()
 }
 
+// Rough delivery estimate from the order date + chosen shipping speed.
+function estimateDelivery(order) {
+  const created = new Date(order.createdAt)
+  if (Number.isNaN(created.getTime())) return null
+  const days = order.received?.shipping === 'express' ? 2 : 5
+  const eta = new Date(created)
+  eta.setDate(eta.getDate() + days)
+  return eta
+}
+
+const formatDay = (date) => date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+
 function Stars({ value, count, size = 'sm' }) {
   const rounded = Math.round(value * 2) / 2
   return (
@@ -501,6 +513,15 @@ function App() {
     setTimeout(() => setNotice(''), 2400)
   }
 
+  // Clear the ticked pieces from the Saved list in one go.
+  function removeSelectedWish() {
+    if (selectedWishItems.length === 0) return
+    const count = selectedWishItems.length
+    setWishlist((current) => current.filter((item) => !wishSelected.includes(item.id)))
+    setNotice(`${count} piece${count === 1 ? '' : 's'} removed from saved`)
+    setTimeout(() => setNotice(''), 2400)
+  }
+
   const cardDigits = card.number.replace(/\D/g, '')
   const cardBrand = detectCardBrand(cardDigits)
 
@@ -596,6 +617,26 @@ function App() {
     setTimeout(() => setNotice(''), 3600)
   }
 
+  // Reorder — drop every item from a past order back into the bag.
+  function reorder(order) {
+    const items = order.received?.items || []
+    if (items.length === 0) return
+    setCart((current) => {
+      const next = current.map((item) => ({ ...item }))
+      items.forEach((item) => {
+        const found = next.find((entry) => entry.id === item.id)
+        if (found) found.quantity += item.quantity
+        else next.push({ ...item })
+      })
+      return next
+    })
+    setTrackOpen(false)
+    setCartOpen(true)
+    const units = items.reduce((sum, item) => sum + item.quantity, 0)
+    setNotice(`${units} item${units === 1 ? '' : 's'} added back to your bag`)
+    setTimeout(() => setNotice(''), 2600)
+  }
+
   const trackedOrders = useMemo(() => {
     const q = trackQuery.trim().toLowerCase()
     return orders
@@ -647,9 +688,9 @@ function App() {
             <input aria-label="Search products" placeholder="Search" value={query} onChange={(event) => setQuery(event.target.value)} />
           </label>
           <button className="admin-link" onClick={() => setAdminOpen(true)}>Control panel</button>
-          <button className="pill-button orders-button" onClick={() => setTrackOpen(true)}>Orders <b key={orders.length}>{orders.length}</b></button>
-          <button className="pill-button wishlist-button" onClick={() => setWishlistOpen(true)}>Saved <b key={wishlist.length}>{wishlist.length}</b></button>
-          <button className="pill-button bag-button" onClick={() => setCartOpen(true)}>Bag <b key={itemCount}>{itemCount}</b></button>
+          <button className="pill-button orders-button" onClick={() => setTrackOpen(true)}>Orders {orders.length > 0 && <b key={orders.length}>{orders.length}</b>}</button>
+          <button className="pill-button wishlist-button" onClick={() => setWishlistOpen(true)}>Saved {wishlist.length > 0 && <b key={wishlist.length}>{wishlist.length}</b>}</button>
+          <button className="pill-button bag-button" onClick={() => setCartOpen(true)}>Bag {itemCount > 0 && <b key={itemCount}>{itemCount}</b>}</button>
           <button className="menu-toggle" aria-label="Open menu" onClick={() => setMenuOpen(true)}>☰</button>
         </div>
       </header>
@@ -1045,6 +1086,9 @@ function App() {
                   <button className="dark-button" disabled={selectedWishItems.length === 0} onClick={checkoutSelectedWish}>
                     Move selected to bag <span>↗</span>
                   </button>
+                  <button type="button" className="wish-remove-selected" disabled={selectedWishItems.length === 0} onClick={removeSelectedWish}>
+                    Remove selected
+                  </button>
                 </div>
               </>
             )}
@@ -1299,6 +1343,8 @@ function App() {
                       ? `${order.received?.card?.brand || 'Card'} ···· ${order.received?.card?.last4 || '••••'}`
                       : 'Pay on delivery'
                     const shipLabel = order.received?.shipping === 'express' ? 'Express delivery' : 'Standard delivery'
+                    const eta = estimateDelivery(order)
+                    const inFlight = order.status !== 'Cancelled' && order.status !== 'Delivered'
                     return (
                       <div className={`admin-order-card track-order-card ${order.status === 'Cancelled' ? 'is-cancelled' : ''}`} key={order.orderId}>
                         <div className="admin-order-top">
@@ -1322,6 +1368,12 @@ function App() {
                           </dl>
                         )}
                         <OrderStepper status={order.status} />
+                        {inFlight && eta && (
+                          <p className="track-eta"><span aria-hidden="true">🚚</span> {order.status === 'Shipped' ? 'Arriving' : 'Est. arrival'} <strong>{formatDay(eta)}</strong></p>
+                        )}
+                        {order.status === 'Delivered' && eta && (
+                          <p className="track-eta is-delivered"><span aria-hidden="true">✓</span> Delivered <strong>{formatDay(eta)}</strong></p>
+                        )}
                         <div className="admin-order-foot track-order-foot">
                           <span className={`order-status status-${order.status.toLowerCase()}`}>{order.status === 'Cancelled' ? '✕ Cancelled' : order.status}</span>
                           {cancellable ? (
@@ -1336,8 +1388,8 @@ function App() {
                             )
                           ) : order.status === 'Shipped' ? (
                             <small>On the way — too late to cancel</small>
-                          ) : order.status === 'Delivered' ? (
-                            <small>Delivered — thank you</small>
+                          ) : (order.status === 'Delivered' || order.status === 'Cancelled') ? (
+                            <button type="button" className="buy-again" onClick={() => reorder(order)}>{order.status === 'Cancelled' ? 'Order again' : 'Buy again'} ↻</button>
                           ) : null}
                         </div>
                       </div>

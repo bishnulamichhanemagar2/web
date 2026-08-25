@@ -3087,6 +3087,53 @@ footer {
   color: #b0402b;
 }
 
+/* Estimated-arrival line under the tracker stepper */
+.track-eta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 0 0;
+  padding: 8px 11px;
+  border-radius: 8px;
+  background: rgba(229, 189, 99, 0.16);
+  font-size: 12px;
+  color: #6b6459;
+}
+
+.track-eta strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.track-eta.is-delivered {
+  background: rgba(25, 59, 58, 0.1);
+}
+
+.track-eta span {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* "Buy again" / "Order again" reorder button */
+.buy-again {
+  border: 1px solid var(--ink);
+  background: none;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 6px 13px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.buy-again:hover {
+  background: var(--ink);
+  color: var(--cream);
+  transform: translateY(-1px);
+}
+
 .cancel-btn {
   border: 1px solid var(--line);
   background: transparent;
@@ -3426,6 +3473,30 @@ footer {
   opacity: 0.4;
   cursor: not-allowed;
   transform: none;
+}
+
+.wish-remove-selected {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  border: 0;
+  background: none;
+  color: #a8776a;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  padding: 4px 0;
+  transition: color 0.18s ease;
+}
+
+.wish-remove-selected:hover:not(:disabled) {
+  color: var(--orange);
+  text-decoration: underline;
+}
+
+.wish-remove-selected:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 /* ---- Order tracking: filled-in checkout details ---- */

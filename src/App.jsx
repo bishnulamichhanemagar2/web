@@ -421,7 +421,7 @@ function App() {
     const rect = event.currentTarget.getBoundingClientRect()
     const x = (event.clientX - rect.left) / rect.width - 0.5
     const y = (event.clientY - rect.top) / rect.height - 0.5
-    setHeroCursor({ x: x.toFixed(3), y: y.toFixed(3) })
+    setHeroCursor({ x: Number(x.toFixed(3)), y: Number(y.toFixed(3)) })
   }
 
   function openCategory(tileLabel) {
@@ -476,12 +476,12 @@ function App() {
   }
 
   function toggleWishlist(product) {
-    setWishlist((current) => {
-      const exists = current.some((item) => item.id === product.id)
-      setNotice(exists ? `${product.name} removed from wishlist` : `${product.name} saved to wishlist`)
-      setTimeout(() => setNotice(''), 2200)
-      return exists ? current.filter((item) => item.id !== product.id) : [...current, product]
-    })
+    // Compute the change from current state, then update — keeping the state
+    // updater pure so it stays correct under StrictMode's double-invoke.
+    const exists = wishlist.some((item) => item.id === product.id)
+    setWishlist((current) => exists ? current.filter((item) => item.id !== product.id) : [...current, product])
+    setNotice(exists ? `${product.name} removed from wishlist` : `${product.name} saved to wishlist`)
+    setTimeout(() => setNotice(''), 2200)
   }
 
   function moveWishlistToCart(product) {
@@ -568,7 +568,7 @@ function App() {
   }
 
   function verifyPayment() {
-    if (otp.replace(/\D/g, '').length < 4) { setCardError('Enter the 6-digit code from your bank.'); return }
+    if (otp.replace(/\D/g, '').length < 6) { setCardError('Enter the 6-digit code from your bank.'); return }
     setCardError('')
     setPayStage('processing')
     setTimeout(() => {
@@ -596,6 +596,8 @@ function App() {
     if (response?.ok) {
       const updated = await response.json()
       setOrders((current) => current.map((item) => item.orderId === orderId ? updated : item))
+    } else {
+      setOrders((current) => current.map((item) => item.orderId === orderId ? { ...item, status: next } : item))
     }
   }
 
@@ -608,8 +610,15 @@ function App() {
     if (response?.ok) {
       const updated = await response.json()
       setOrders((current) => current.map((item) => item.orderId === orderId ? updated : item))
-    } else {
+    } else if (response == null) {
+      // No API reachable (static hosting): apply the cancellation locally.
       setOrders((current) => current.map((item) => item.orderId === orderId ? { ...item, status: 'Cancelled' } : item))
+    } else {
+      // Server rejected it (e.g. 409 — already shipped). Don't force a local cancel that would diverge from the server.
+      setConfirmCancel(null)
+      setNotice(`Order ${orderId} can no longer be cancelled — it may have already shipped.`)
+      setTimeout(() => setNotice(''), 3600)
+      return
     }
     setConfirmCancel(null)
     const refundNote = order.received?.payment === 'card' ? ' Any card charge will be refunded.' : ''
@@ -1164,7 +1173,7 @@ function App() {
                     <div className="admin-order-card" key={order.orderId}>
                       <div className="admin-order-top">
                         <span className="order-id">{order.orderId}</span>
-                        <strong>${order.received.total}</strong>
+                        <strong>${order.received?.total ?? 0}</strong>
                       </div>
                       <OrderStepper status={order.status} />
                       <div className="admin-order-foot">
@@ -1349,7 +1358,7 @@ function App() {
                       <div className={`admin-order-card track-order-card ${order.status === 'Cancelled' ? 'is-cancelled' : ''}`} key={order.orderId}>
                         <div className="admin-order-top">
                           <span className="order-id">{order.orderId}</span>
-                          <strong>${order.received?.total}</strong>
+                          <strong>${order.received?.total ?? 0}</strong>
                         </div>
                         <div className="track-order-items">
                           {items.slice(0, 4).map((item) => (

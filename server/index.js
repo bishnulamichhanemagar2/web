@@ -108,7 +108,7 @@ const server = createServer(async (request, response) => {
       }
       orders.push(order)
       sendJson(response, 201, order)
-    } catch (error) {
+    } catch {
       sendJson(response, 400, { error: 'Invalid request body.' })
     }
     return
@@ -137,7 +137,7 @@ const server = createServer(async (request, response) => {
       }
       order.status = patch.status
       sendJson(response, 200, order)
-    } catch (error) {
+    } catch {
       sendJson(response, 400, { error: 'Invalid request body.' })
     }
     return

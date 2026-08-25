@@ -58,7 +58,10 @@ const categoryTiles = [
 const WISHLIST_KEY = 'nexus-wishlist'
 const CART_KEY = 'nexus-cart'
 const RECENT_KEY = 'nexus-recent'
+const ORDERS_KEY = 'nexus-orders'
 const ORDER_FLOW = ['New', 'Processing', 'Shipped', 'Delivered']
+// A customer may only pull an order back before it leaves the warehouse.
+const CANCELLABLE = ['New', 'Processing']
 
 // Promo codes accepted at checkout.
 const PROMOS = {
@@ -147,6 +150,13 @@ function Sparkline({ data }) {
 }
 
 function OrderStepper({ status }) {
+  if (status === 'Cancelled') {
+    return (
+      <div className="order-stepper cancelled">
+        <div className="stepper-cancelled"><span aria-hidden="true">✕</span> Order cancelled</div>
+      </div>
+    )
+  }
   const current = ORDER_FLOW.indexOf(status)
   const progress = current === -1 ? 0 : (current / (ORDER_FLOW.length - 1)) * 100
   return (
@@ -234,8 +244,11 @@ function App() {
   const [promoInput, setPromoInput] = useState('')
   const [promo, setPromo] = useState(null)
   const [promoError, setPromoError] = useState('')
-  const [orders, setOrders] = useState([])
+  const [orders, setOrders] = usePersistentState(ORDERS_KEY, [])
   const [adminOpen, setAdminOpen] = useState(false)
+  const [trackOpen, setTrackOpen] = useState(false)
+  const [trackQuery, setTrackQuery] = useState('')
+  const [confirmCancel, setConfirmCancel] = useState(null)
   const [editorialChoice, setEditorialChoice] = useState('Materials')
   const [view, setView] = useState(window.location.hash === '#shop' ? 'shop' : window.location.hash === '#about' ? 'about' : 'home')
   const [wishlist, setWishlist] = usePersistentState(WISHLIST_KEY, [])
@@ -270,7 +283,21 @@ function App() {
     return () => { active = false }
   }, [])
 
-  useEffect(() => { fetch('/api/orders').then((response) => response.ok ? response.json() : Promise.reject()).then(setOrders).catch(() => { }) }, [])
+  // Merge server orders with locally-saved ones so customer tracking survives
+  // reloads and works on static hosting where no API is running.
+  useEffect(() => {
+    fetch('/api/orders')
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((serverOrders) => {
+        if (!Array.isArray(serverOrders)) return
+        setOrders((local) => {
+          const byId = new Map(local.map((order) => [order.orderId, order]))
+          serverOrders.forEach((order) => byId.set(order.orderId, order)) // server is authoritative for status
+          return Array.from(byId.values())
+        })
+      })
+      .catch(() => { })
+  }, [setOrders])
 
   useEffect(() => {
     const onHashChange = () => setView(window.location.hash === '#shop' ? 'shop' : window.location.hash === '#about' ? 'about' : 'home')
@@ -285,7 +312,7 @@ function App() {
   useEffect(() => {
     const onKey = (event) => {
       if (event.key === 'Escape') {
-        setCartOpen(false); setAdminOpen(false); setWishlistOpen(false); setQuickView(null); setMenuOpen(false); setCheckout(false)
+        setCartOpen(false); setAdminOpen(false); setWishlistOpen(false); setQuickView(null); setMenuOpen(false); setCheckout(false); setTrackOpen(false)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -337,8 +364,8 @@ function App() {
   const shippingCost = shipping === 'express' ? 24 : discountedSubtotal >= 150 ? 0 : 12
   const total = discountedSubtotal + shippingCost
 
-  const revenue = orders.reduce((sum, order) => sum + (order.received?.total || 0), 0)
-  const revenueHistory = orders.slice().sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)).map((order) => order.received?.total || 0)
+  const revenue = orders.reduce((sum, order) => sum + (order.status === 'Cancelled' ? 0 : order.received?.total || 0), 0)
+  const revenueHistory = orders.filter((order) => order.status !== 'Cancelled').slice().sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)).map((order) => order.received?.total || 0)
 
   const categoryData = useMemo(() => {
     const counts = {}
@@ -502,7 +529,7 @@ function App() {
 
   async function advanceOrderStatus(orderId) {
     const order = orders.find((item) => item.orderId === orderId)
-    if (!order) return
+    if (!order || order.status === 'Cancelled') return
     const next = ORDER_FLOW[Math.min(ORDER_FLOW.indexOf(order.status) + 1, ORDER_FLOW.length - 1)]
     const response = await fetch(`/api/orders/${orderId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: next }) }).catch(() => null)
     if (response?.ok) {
@@ -510,6 +537,32 @@ function App() {
       setOrders((current) => current.map((item) => item.orderId === orderId ? updated : item))
     }
   }
+
+  // Customer-initiated cancellation. Works against the API when present, and
+  // falls back to a local status change on static hosting.
+  async function cancelOrder(orderId) {
+    const order = orders.find((item) => item.orderId === orderId)
+    if (!order || !CANCELLABLE.includes(order.status)) { setConfirmCancel(null); return }
+    const response = await fetch(`/api/orders/${orderId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'Cancelled' }) }).catch(() => null)
+    if (response?.ok) {
+      const updated = await response.json()
+      setOrders((current) => current.map((item) => item.orderId === orderId ? updated : item))
+    } else {
+      setOrders((current) => current.map((item) => item.orderId === orderId ? { ...item, status: 'Cancelled' } : item))
+    }
+    setConfirmCancel(null)
+    const refundNote = order.received?.payment === 'card' ? ' Any card charge will be refunded.' : ''
+    setNotice(`Order ${orderId} cancelled.${refundNote}`)
+    setTimeout(() => setNotice(''), 3600)
+  }
+
+  const trackedOrders = useMemo(() => {
+    const q = trackQuery.trim().toLowerCase()
+    return orders
+      .filter((order) => !q || order.orderId.toLowerCase().includes(q))
+      .slice()
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+  }, [orders, trackQuery])
 
   function clearFilters() {
     setCategory('All pieces')
@@ -554,6 +607,7 @@ function App() {
             <input aria-label="Search products" placeholder="Search" value={query} onChange={(event) => setQuery(event.target.value)} />
           </label>
           <button className="admin-link" onClick={() => setAdminOpen(true)}>Control panel</button>
+          <button className="orders-button" onClick={() => setTrackOpen(true)}>Orders <b>{orders.length}</b></button>
           <button className="wishlist-button" onClick={() => setWishlistOpen(true)}>Saved <b>{wishlist.length}</b></button>
           <button key={`bag-${itemCount}`} className="bag-button" onClick={() => setCartOpen(true)}>Bag <b>{itemCount}</b></button>
           <button className="menu-toggle" aria-label="Open menu" onClick={() => setMenuOpen(true)}>☰</button>
@@ -814,7 +868,7 @@ function App() {
                 <li><span>Shipping &amp; returns</span></li>
                 <li><span>Contact us</span></li>
                 <li><span>FAQ</span></li>
-                <li><span>Track order</span></li>
+                <li><button onClick={() => setTrackOpen(true)}>Track order</button></li>
               </ul>
             </div>
           </div>
@@ -871,6 +925,7 @@ function App() {
             <button className={view === 'home' ? 'active' : ''} onClick={() => goTo('home')}>Home</button>
             <button className={view === 'shop' ? 'active' : ''} onClick={() => goTo('shop')}>Shop all</button>
             <button className={view === 'about' ? 'active' : ''} onClick={() => goTo('about')}>About</button>
+            <button onClick={() => { setMenuOpen(false); setTrackOpen(true) }}>Track order</button>
             <button onClick={() => { setMenuOpen(false); setAdminOpen(true) }}>Control panel</button>
           </nav>
         </div>
@@ -1008,7 +1063,13 @@ function App() {
                       <OrderStepper status={order.status} />
                       <div className="admin-order-foot">
                         <small>{new Date(order.createdAt).toLocaleString()}</small>
-                        <button className="advance-btn" onClick={() => advanceOrderStatus(order.orderId)}>Advance →</button>
+                        {order.status === 'Cancelled' ? (
+                          <span className="order-status status-cancelled">✕ Cancelled</span>
+                        ) : order.status === 'Delivered' ? (
+                          <span className="order-status status-delivered">Delivered</span>
+                        ) : (
+                          <button className="advance-btn" onClick={() => advanceOrderStatus(order.orderId)}>Advance →</button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -1146,6 +1207,73 @@ function App() {
           </aside>
         </div>
       )}
+      {trackOpen && (
+        <div className="drawer-backdrop" onClick={() => setTrackOpen(false)}>
+          <aside className="cart-drawer track-drawer" onClick={(event) => event.stopPropagation()}>
+            <div className="drawer-head">
+              <h2>Track orders <small>{orders.length}</small></h2>
+              <button onClick={() => setTrackOpen(false)}>×</button>
+            </div>
+            {orders.length === 0 ? (
+              <div className="empty-cart">
+                <p>No orders to track yet.</p>
+                <span>Once you place an order, follow it here from packing to your door.</span>
+              </div>
+            ) : (
+              <>
+                <label className="track-lookup">
+                  <span aria-hidden="true">⌕</span>
+                  <input aria-label="Find order by ID" placeholder="Find by order ID (e.g. NX-…)" value={trackQuery} onChange={(event) => setTrackQuery(event.target.value)} />
+                </label>
+                <div className="order-list track-list">
+                  {trackedOrders.length === 0 ? (
+                    <p className="admin-empty">No order matches “{trackQuery}”.</p>
+                  ) : trackedOrders.map((order) => {
+                    const items = order.received?.items || []
+                    const units = items.reduce((sum, item) => sum + item.quantity, 0)
+                    const cancellable = CANCELLABLE.includes(order.status)
+                    return (
+                      <div className={`admin-order-card track-order-card ${order.status === 'Cancelled' ? 'is-cancelled' : ''}`} key={order.orderId}>
+                        <div className="admin-order-top">
+                          <span className="order-id">{order.orderId}</span>
+                          <strong>${order.received?.total}</strong>
+                        </div>
+                        <div className="track-order-items">
+                          {items.slice(0, 4).map((item) => (
+                            <img key={item.id} src={item.image} alt={item.name} title={`${item.name} × ${item.quantity}`} loading="lazy" />
+                          ))}
+                          {items.length > 4 && <span className="track-more">+{items.length - 4}</span>}
+                          <span className="track-item-summary">{units} item{units === 1 ? '' : 's'} · {new Date(order.createdAt).toLocaleDateString()}</span>
+                        </div>
+                        <OrderStepper status={order.status} />
+                        <div className="admin-order-foot track-order-foot">
+                          <span className={`order-status status-${order.status.toLowerCase()}`}>{order.status === 'Cancelled' ? '✕ Cancelled' : order.status}</span>
+                          {cancellable ? (
+                            confirmCancel === order.orderId ? (
+                              <span className="cancel-confirm">
+                                Cancel this order?
+                                <button type="button" className="cancel-yes" onClick={() => cancelOrder(order.orderId)}>Yes</button>
+                                <button type="button" className="cancel-no" onClick={() => setConfirmCancel(null)}>Keep</button>
+                              </span>
+                            ) : (
+                              <button type="button" className="cancel-btn" onClick={() => setConfirmCancel(order.orderId)}>Cancel order</button>
+                            )
+                          ) : order.status === 'Shipped' ? (
+                            <small>On the way — too late to cancel</small>
+                          ) : order.status === 'Delivered' ? (
+                            <small>Delivered — thank you</small>
+                          ) : null}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+          </aside>
+        </div>
+      )}
+
       {payStage && (
         <div className="gateway-overlay" role="dialog" aria-modal="true" aria-label="Payment">
           <div className="gateway-modal">

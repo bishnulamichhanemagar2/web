@@ -31,7 +31,9 @@ const products = [
 ]
 
 const orders = []
-const VALID_STATUSES = ['New', 'Processing', 'Shipped', 'Delivered']
+const VALID_STATUSES = ['New', 'Processing', 'Shipped', 'Delivered', 'Cancelled']
+// Orders can only be cancelled before they leave the warehouse.
+const CANCELLABLE_STATUSES = ['New', 'Processing']
 const MAX_BODY_BYTES = 100_000
 
 function sendJson(response, status, data) {
@@ -126,6 +128,11 @@ const server = createServer(async (request, response) => {
       const patch = JSON.parse(body || '{}')
       if (!VALID_STATUSES.includes(patch.status)) {
         sendJson(response, 400, { error: `Status must be one of: ${VALID_STATUSES.join(', ')}.` })
+        return
+      }
+      // Guard: a shipped, delivered, or already-cancelled order can't be cancelled.
+      if (patch.status === 'Cancelled' && !CANCELLABLE_STATUSES.includes(order.status)) {
+        sendJson(response, 409, { error: `An order that is ${order.status} can no longer be cancelled.` })
         return
       }
       order.status = patch.status

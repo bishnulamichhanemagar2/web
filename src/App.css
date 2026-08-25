@@ -243,6 +243,37 @@ nav {
   font-size: 10px;
 }
 
+.orders-button {
+  position: relative;
+  border: 1px solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+  padding: 8px 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  transition: background 0.2s, color 0.2s, transform 0.2s;
+}
+
+.orders-button:hover {
+  background: var(--ink);
+  color: var(--cream);
+  transform: translateY(-1px);
+}
+
+.orders-button b {
+  margin-left: 8px;
+  background: var(--butter);
+  color: var(--ink);
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  height: 19px;
+  width: 19px;
+  font-size: 10px;
+}
+
+
 .admin-link {
   border: 0;
   background: none;
@@ -2983,6 +3014,179 @@ footer {
   font-family: 'Playfair Display', serif;
   font-style: italic;
   padding: 18px 0;
+}
+
+/* ---- Order tracking drawer ---- */
+.track-drawer {
+  overflow-y: auto;
+}
+
+.track-lookup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 9px 12px;
+  margin: 18px 0 14px;
+  background: #fffaf2;
+}
+
+.track-lookup span {
+  font-size: 15px;
+  color: #8a8379;
+}
+
+.track-lookup input {
+  border: 0;
+  background: none;
+  flex: 1;
+  font: 13px 'DM Sans';
+  color: var(--ink);
+  outline: none;
+}
+
+.track-order-card.is-cancelled {
+  opacity: 0.72;
+}
+
+.track-order-items {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 10px;
+  flex-wrap: wrap;
+}
+
+.track-order-items img {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+}
+
+.track-more {
+  font-size: 10px;
+  font-weight: 700;
+  color: #8a8379;
+}
+
+.track-item-summary {
+  margin-left: auto;
+  font-size: 10px;
+  color: #8a8379;
+  letter-spacing: 0.03em;
+}
+
+.stepper-cancelled {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #b0402b;
+  background: rgba(216, 102, 74, 0.1);
+  border: 1px solid rgba(216, 102, 74, 0.3);
+  border-radius: 2px;
+  padding: 8px 10px;
+}
+
+.track-order-foot {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.order-status {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #eadfce;
+  color: var(--ink);
+}
+
+.order-status.status-new {
+  background: #eadfce;
+  color: #6b6459;
+}
+
+.order-status.status-processing {
+  background: rgba(229, 189, 99, 0.28);
+  color: #8a6a1f;
+}
+
+.order-status.status-shipped {
+  background: rgba(25, 59, 58, 0.14);
+  color: var(--ink);
+}
+
+.order-status.status-delivered {
+  background: rgba(25, 59, 58, 0.9);
+  color: var(--cream);
+}
+
+.order-status.status-cancelled {
+  background: rgba(216, 102, 74, 0.16);
+  color: #b0402b;
+}
+
+.cancel-btn {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: #b0402b;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 5px 9px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s, transform 0.2s;
+}
+
+.cancel-btn:hover {
+  border-color: var(--orange);
+  background: var(--orange);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.cancel-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--ink);
+}
+
+.cancel-yes,
+.cancel-no {
+  border: 1px solid var(--line);
+  background: transparent;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.cancel-yes {
+  color: #fff;
+  background: var(--orange);
+  border-color: var(--orange);
+}
+
+.cancel-yes:hover {
+  filter: brightness(0.95);
+}
+
+.cancel-no:hover {
+  border-color: var(--ink);
 }
 
 /* ---- Toast ---- */
